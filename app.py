@@ -1,8 +1,11 @@
 import streamlit as st
 import os
 import tempfile
+import json
+from datetime import datetime
 from dotenv import load_dotenv
 import google.generativeai as genai
+from streamlit_js_eval import streamlit_js_eval
 
 # Load environment variables
 load_dotenv()
@@ -12,8 +15,66 @@ st.set_page_config(
     page_title="音声配信AIアシスタント",
     page_icon="🎙️",
     layout="centered",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded"
 )
+
+# --- LocalStorage Functions ---
+
+STORAGE_KEY = "audio_ai_assistant_history"
+
+def load_history_from_storage():
+    """LocalStorageから履歴を読み込む（初回のみ）"""
+    # 既に読み込み済みの場合はスキップ
+    if st.session_state.get('history_loaded', False):
+        return
+    
+    # JavaScriptでLocalStorageから読み込み
+    stored_data = streamlit_js_eval(
+        js_expressions=f"localStorage.getItem('{STORAGE_KEY}')",
+        key="load_history_initial"
+    )
+    
+    # stored_dataがNoneでない場合（JavaScriptが実行完了した場合）
+    if stored_data is not None and stored_data != "null" and stored_data != "":
+        try:
+            loaded_history = json.loads(stored_data)
+            if isinstance(loaded_history, list):
+                st.session_state.history = loaded_history
+                st.session_state.history_loaded = True
+        except (json.JSONDecodeError, TypeError):
+            st.session_state.history_loaded = True
+    elif stored_data == "null" or stored_data == "":
+        # LocalStorageが空の場合
+        st.session_state.history_loaded = True
+
+
+def save_history_to_storage():
+    """LocalStorageに履歴を保存する"""
+    if 'history' in st.session_state and st.session_state.history:
+        history_json = json.dumps(st.session_state.history, ensure_ascii=False)
+        # JavaScriptでLocalStorageに保存（エスケープ処理）
+        escaped_json = history_json.replace('\\', '\\\\').replace("'", "\\'")
+        streamlit_js_eval(
+            js_expressions=f"localStorage.setItem('{STORAGE_KEY}', '{escaped_json}')",
+            key=f"save_history_{len(st.session_state.history)}_{datetime.now().strftime('%H%M%S')}"
+        )
+
+
+def clear_storage():
+    """LocalStorageの履歴をクリア"""
+    streamlit_js_eval(
+        js_expressions=f"localStorage.removeItem('{STORAGE_KEY}')",
+        key=f"clear_history_{datetime.now().strftime('%H%M%S')}"
+    )
+
+
+# セッション状態の初期化
+if 'history' not in st.session_state:
+    st.session_state.history = []
+
+
+if 'viewing_history_index' not in st.session_state:
+    st.session_state.viewing_history_index = None
 
 # Apply custom CSS for mobile-friendly design
 st.markdown("""
@@ -100,6 +161,44 @@ st.markdown("""
     .stTabs [aria-selected="true"] {
         background-color: #4facfe;
     }
+    
+    /* Sidebar history items */
+    .history-item {
+        background-color: #1c1f26;
+        border-radius: 8px;
+        padding: 12px;
+        margin-bottom: 8px;
+        border: 1px solid #30363d;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    .history-item:hover {
+        border-color: #4facfe;
+        transform: translateX(2px);
+    }
+    .history-date {
+        color: #888;
+        font-size: 12px;
+    }
+    .history-title {
+        color: #fff;
+        font-size: 14px;
+        font-weight: 500;
+        margin-top: 4px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    
+    /* Storage indicator */
+    .storage-badge {
+        background-color: #1a3d2e;
+        color: #2ecc71;
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 11px;
+        margin-left: 8px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -174,11 +273,123 @@ def get_title_prompt(transcript):
 """
 
 
+def add_to_history(titles, description, transcript, filename):
+    """履歴に追加する"""
+    # タイトル案から最初のタイトルを抽出（表示用）
+    first_title = ""
+    for line in titles.split('\n'):
+        if line.strip().startswith('1.'):
+            first_title = line.strip()[2:].strip()
+            break
+    if not first_title:
+        first_title = filename[:20] + "..."
+    
+    history_item = {
+        'datetime': datetime.now().strftime('%Y/%m/%d %H:%M'),
+        'display_title': first_title[:30],
+        'titles': titles,
+        'description': description,
+        'transcript': transcript,
+        'filename': filename
+    }
+    
+    # 先頭に追加（新しいものが上に来るように）
+    st.session_state.history.insert(0, history_item)
+    
+    # 最大20件まで保持
+    if len(st.session_state.history) > 20:
+        st.session_state.history = st.session_state.history[:20]
+    
+    # LocalStorageに保存
+    save_history_to_storage()
+
+
+def render_sidebar():
+    """サイドバーに履歴を表示"""
+    with st.sidebar:
+        st.markdown("## 📚 生成履歴")
+        st.markdown('<span class="storage-badge">💾 永続保存</span>', unsafe_allow_html=True)
+        st.caption("ブラウザに保存されます")
+        
+        if not st.session_state.history:
+            st.markdown("*まだ履歴がありません*")
+            st.markdown("音声をアップロードして概要欄を生成すると、ここに履歴が表示されます。")
+        else:
+            st.markdown(f"*過去{len(st.session_state.history)}件の履歴*")
+            
+            # 全削除ボタン（上部に配置）
+            st.markdown("---")
+            if st.button("🗑️ すべての履歴を削除", type="secondary", use_container_width=True):
+                st.session_state.history = []
+                st.session_state.viewing_history_index = None
+                clear_storage()  # LocalStorageもクリア
+                if 'description' in st.session_state:
+                    del st.session_state.description
+                if 'titles' in st.session_state:
+                    del st.session_state.titles
+                if 'transcript' in st.session_state:
+                    del st.session_state.transcript
+                st.rerun()
+            
+            st.markdown("---")
+            
+            # 各履歴を表示
+            for i, item in enumerate(st.session_state.history):
+                # 履歴カード
+                with st.container():
+                    # 履歴を表示するボタン
+                    if st.button(
+                        f"📄 {item['display_title'][:25]}...\n\n🕐 {item['datetime']}",
+                        key=f"history_{i}",
+                        use_container_width=True
+                    ):
+                        st.session_state.viewing_history_index = i
+                        # 現在の表示内容を履歴のものに切り替え
+                        st.session_state.transcript = item['transcript']
+                        st.session_state.description = item['description']
+                        st.session_state.titles = item['titles']
+                        st.rerun()
+                    
+                    # 個別削除ボタン（履歴の下に配置）
+                    if st.button(
+                        "🗑️ この履歴を削除",
+                        key=f"delete_{i}",
+                        type="secondary",
+                        use_container_width=True
+                    ):
+                        st.session_state.history.pop(i)
+                        save_history_to_storage()  # 削除後に保存
+                        if st.session_state.viewing_history_index == i:
+                            st.session_state.viewing_history_index = None
+                        st.rerun()
+                    
+                    st.markdown("---")
+
+
 # --- Main App ---
 
 def main():
+    # LocalStorageから履歴を読み込む
+    load_history_from_storage()
+    
+    # サイドバーの履歴を表示
+    render_sidebar()
+    
     st.title("🎙️ 音声配信AIアシスタント")
     st.markdown("音声をアップロードするだけで、Stand.fm用の概要欄を自動生成します。")
+    
+    # 履歴表示中の通知
+    if st.session_state.viewing_history_index is not None:
+        st.info(f"📚 履歴を表示中（サイドバーから選択）")
+        if st.button("✨ 新規作成に戻る"):
+            st.session_state.viewing_history_index = None
+            if 'description' in st.session_state:
+                del st.session_state.description
+            if 'titles' in st.session_state:
+                del st.session_state.titles
+            if 'transcript' in st.session_state:
+                del st.session_state.transcript
+            st.rerun()
     
     # API Key設定
     with st.expander("⚙️ API設定", expanded=False):
@@ -226,7 +437,7 @@ def main():
             
             # Gemini API設定
             genai.configure(api_key=api_key)
-            model = genai.GenerativeModel("models/gemini-2.5-flash")
+            model = genai.GenerativeModel("gemini-2.0-flash-lite")
             
             # Step 1: 文字起こし
             with st.spinner("🎧 音声を文字起こし中..."):
@@ -252,12 +463,19 @@ def main():
             # 一時ファイル削除
             os.remove(tmp_path)
             
-            st.success("✅ 生成完了！")
-            
             # 結果をセッションに保存
             st.session_state.transcript = transcript
             st.session_state.description = description
             st.session_state.titles = titles
+            
+            # 履歴に追加（LocalStorageにも自動保存）
+            add_to_history(titles, description, transcript, uploaded_file.name)
+            st.session_state.viewing_history_index = None
+            
+            st.success("✅ 生成完了！サイドバーに履歴が追加されました。")
+            
+            # ページを再描画してサイドバーを更新
+            st.rerun()
             
         except Exception as e:
             err_msg = str(e)
@@ -290,7 +508,29 @@ def main():
             )
             # 編集内容をセッションに保存
             st.session_state.description = edited_description
-            st.link_button("🚀 スタエフの投稿画面を開く", "https://stand.fm/creator/broadcast/create")
+            
+            # 履歴表示中の場合、編集した内容で履歴を更新
+            if st.session_state.viewing_history_index is not None:
+                idx = st.session_state.viewing_history_index
+                if idx < len(st.session_state.history):
+                    st.session_state.history[idx]['description'] = edited_description
+                    save_history_to_storage()  # 編集を保存
+            
+            # コピーボタンとスタエフボタンを横並びに
+            col1, col2 = st.columns(2)
+            with col1:
+                # コピーボタン（JavaScriptでクリップボードにコピー）
+                if st.button("📋 概要欄をコピー", use_container_width=True, type="primary"):
+                    # JavaScriptでクリップボードにコピー
+                    escaped_text = edited_description.replace('\\', '\\\\').replace('`', '\\`').replace('$', '\\$')
+                    streamlit_js_eval(
+                        js_expressions=f"navigator.clipboard.writeText(`{escaped_text}`).then(() => true)",
+                        key=f"copy_description_{datetime.now().strftime('%H%M%S%f')}"
+                    )
+                    st.success("✅ コピーしました！")
+            
+            with col2:
+                st.link_button("🚀 スタエフの投稿画面を開く", "https://stand.fm/creator/broadcast/create", use_container_width=True)
         
         with tab2:
             st.markdown("### 🏷️ タイトル案")
