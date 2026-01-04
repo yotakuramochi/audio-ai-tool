@@ -114,6 +114,51 @@ def clear_scripts_storage():
     )
 
 
+# --- Transcription Storage Functions ---
+
+TRANSCRIPTION_STORAGE_KEY = "voice_transcriptions"
+
+def load_transcriptions():
+    """LocalStorageから文字起こしデータを読み込む（初回のみ）"""
+    if st.session_state.get('transcriptions_loaded', False):
+        return
+    
+    stored_data = streamlit_js_eval(
+        js_expressions=f"localStorage.getItem('{TRANSCRIPTION_STORAGE_KEY}')",
+        key="load_transcriptions_initial"
+    )
+    
+    if stored_data is not None and stored_data != "null" and stored_data != "":
+        try:
+            loaded_transcriptions = json.loads(stored_data)
+            if isinstance(loaded_transcriptions, list):
+                st.session_state.transcriptions = loaded_transcriptions
+                st.session_state.transcriptions_loaded = True
+        except (json.JSONDecodeError, TypeError):
+            st.session_state.transcriptions_loaded = True
+    elif stored_data == "null" or stored_data == "":
+        st.session_state.transcriptions_loaded = True
+
+
+def save_transcriptions_to_storage():
+    """LocalStorageに文字起こしデータを保存する"""
+    if 'transcriptions' in st.session_state and st.session_state.transcriptions:
+        transcriptions_json = json.dumps(st.session_state.transcriptions, ensure_ascii=False)
+        escaped_json = transcriptions_json.replace('\\', '\\\\').replace("'", "\\'")
+        streamlit_js_eval(
+            js_expressions=f"localStorage.setItem('{TRANSCRIPTION_STORAGE_KEY}', '{escaped_json}')",
+            key=f"save_transcriptions_{len(st.session_state.transcriptions)}_{datetime.now().strftime('%H%M%S')}"
+        )
+
+
+def clear_transcriptions_storage():
+    """文字起こしデータをクリア"""
+    streamlit_js_eval(
+        js_expressions=f"localStorage.removeItem('{TRANSCRIPTION_STORAGE_KEY}')",
+        key=f"clear_transcriptions_{datetime.now().strftime('%H%M%S')}"
+    )
+
+
 # --- Settings Storage Functions ---
 
 SETTINGS_STORAGE_KEY = "audio_ai_assistant_settings"
@@ -169,6 +214,9 @@ if 'history' not in st.session_state:
 
 if 'saved_scripts' not in st.session_state:
     st.session_state.saved_scripts = []
+
+if 'transcriptions' not in st.session_state:
+    st.session_state.transcriptions = []
 
 if 'viewing_history_index' not in st.session_state:
     st.session_state.viewing_history_index = None
@@ -495,6 +543,106 @@ def get_script_prompt(memo, settings, selected_episodes):
 2. 箇条書き形式で話すポイントを記載（完全な文章でなくてよい）
 3. 1,500〜2,000文字で作成する
 4. 関連エピソードがある場合は自然に組み込む
+5. 指定された口調で統一する
+
+【出力形式】
+## オープニング
+- 挨拶
+- 今日のテーマ紹介
+
+## メインパート
+（内容に応じてセクション分け）
+
+## クロージング
+- まとめ
+- 次回予告や告知
+"""
+
+
+def search_relevant_transcriptions(memo_text, transcriptions, max_results=2):
+    """メモからキーワードを抽出し、関連する文字起こしを検索（簡易RAG）"""
+    if not transcriptions or not memo_text:
+        return []
+    
+    # 簡易的なキーワード抽出（句読点・スペースで分割して長い単語を抽出）
+    import re
+    # 句読点、改行、スペースで分割
+    words = re.split(r'[、。！？\s\n・「」『』（）\(\)]+', memo_text)
+    # 2文字以上の単語をキーワードとして抽出
+    keywords = [w.strip() for w in words if len(w.strip()) >= 2]
+    
+    if not keywords:
+        return transcriptions[:max_results]  # キーワードがなければ最新のものを返す
+    
+    # 各文字起こしのスコアを計算
+    scored_transcriptions = []
+    for trans in transcriptions:
+        score = 0
+        content = trans.get('content', '') + ' ' + trans.get('title', '')
+        tags = trans.get('tags', [])
+        
+        for keyword in keywords:
+            # 本文でのヒット
+            if keyword in content:
+                score += content.count(keyword)
+            # タグでのヒット（より重み付け）
+            for tag in tags:
+                if keyword in tag or tag in keyword:
+                    score += 3
+        
+        if score > 0:
+            scored_transcriptions.append((trans, score))
+    
+    # スコアでソートして上位を返す
+    scored_transcriptions.sort(key=lambda x: x[1], reverse=True)
+    return [t[0] for t in scored_transcriptions[:max_results]]
+
+
+def get_script_prompt_with_transcriptions(memo, settings, transcriptions):
+    """文字起こしデータを参考にした台本生成用プロンプト（RAG版）"""
+    style_guide = {
+        "親しみやすく": "フレンドリーで親近感のある話し方。「〜だよね」「〜かな」など。",
+        "丁寧に": "敬語を使い、落ち着いた丁寧な話し方。「〜です」「〜ますね」など。",
+        "熱血": "情熱的でエネルギッシュな話し方。「絶対に〜！」「〜しようぜ！」など。",
+        "毒舌": "ズバッと本音を言う話し方。皮肉やユーモアを交えて。"
+    }
+    
+    style = settings.get("speaking_style", "親しみやすく")
+    style_description = style_guide.get(style, style_guide["親しみやすく"])
+    
+    broadcaster = settings.get("broadcaster_name", "")
+    target = settings.get("target_audience", "")
+    
+    # 文字起こしデータを参考資料として整形
+    reference_text = ""
+    if transcriptions:
+        reference_text = "\n\n【参考資料（過去の語り口調サンプル）】\n"
+        reference_text += "以下は、このユーザーが過去に実際に話した文字起こしです。\n"
+        reference_text += "これらと同様の『口調』『リズム』『言葉選び』を模倣して台本を作成してください。\n\n"
+        for i, trans in enumerate(transcriptions, 1):
+            # 長すぎる場合は先頭1000文字に制限
+            content = trans.get('content', '')[:1000]
+            if len(trans.get('content', '')) > 1000:
+                content += "..."
+            reference_text += f"--- サンプル{i}: {trans.get('title', '無題')} ---\n{content}\n\n"
+    
+    return f"""
+以下のメモを元に、音声配信（5〜7分、約1,500〜2,000文字）用の台本を作成してください。
+
+【配信者情報】
+- 名前: {broadcaster if broadcaster else "未設定"}
+- ターゲット: {target if target else "一般リスナー"}
+- 口調: {style}（{style_description}）
+
+【メモ】
+{memo}
+{reference_text}
+
+【台本のルール】
+1. Markdownの見出し（##）を必ず使う（オープニング、メインパート、クロージングなど）
+2. 箇条書き形式で話すポイントを記載（完全な文章でなくてよい）
+3. 1,500〜2,000文字で作成する
+4. 参考資料がある場合は、その口調やリズムを参考にする
 5. 指定された口調で統一する
 
 【出力形式】
@@ -870,7 +1018,7 @@ def render_settings():
 def render_script():
     """台本作成画面"""
     st.markdown("### 📝 台本作成")
-    st.markdown("メモを入力すると、設定に基づいた台本を生成します。")
+    st.markdown("メモを入力すると、過去の文字起こしを参考に台本を生成します。")
     
     # 設定をチェック
     if 'user_settings' not in st.session_state:
@@ -883,7 +1031,8 @@ def render_script():
         st.markdown(f"- **配信者名**: {settings.get('broadcaster_name') or '未設定'}")
         st.markdown(f"- **ターゲット**: {settings.get('target_audience') or '未設定'}")
         st.markdown(f"- **口調**: {settings.get('speaking_style', '親しみやすく')}")
-        st.markdown(f"- **エピソード**: {len(settings.get('episodes', []))}件登録済み")
+        trans_count = len(st.session_state.get('transcriptions', []))
+        st.markdown(f"- **文字起こしデータ**: {trans_count}件登録済み")
         st.markdown("*設定を変更するには「⚙️ 設定」タブへ*")
     
     st.markdown("---")
@@ -896,17 +1045,15 @@ def render_script():
         key="script_memo"
     )
     
-    # エピソード選択（オプション）
-    episodes = settings.get("episodes", [])
-    selected_episodes = []
-    
-    if episodes:
-        st.markdown("#### 📖 使用するエピソード（任意）")
-        st.caption("選択しない場合、AIが自動で関連エピソードを選びます")
-        
-        for i, ep in enumerate(episodes):
-            if st.checkbox(ep['title'], key=f"use_ep_{i}"):
-                selected_episodes.append(ep)
+    # 文字起こしデータの表示（参考情報）
+    transcriptions = st.session_state.get('transcriptions', [])
+    if transcriptions:
+        with st.expander(f"📄 参照される文字起こしデータ（{len(transcriptions)}件）", expanded=False):
+            st.caption("メモのキーワードに基づいて、最大2件の文字起こしが自動選択されます")
+            for trans in transcriptions[:5]:  # 最大5件まで表示
+                st.markdown(f"- **{trans.get('title', '無題')}** ({trans.get('date', '')})")
+    else:
+        st.info("💡 「📄 文字起こし」タブで過去の放送を登録すると、あなたの口調を模倣した台本が生成されます")
     
     st.markdown("---")
     
@@ -917,14 +1064,30 @@ def render_script():
             model = genai.GenerativeModel("gemini-2.0-flash-exp")
             
             with st.spinner("📝 台本を生成中..."):
-                # エピソードが選択されていない場合、AIに選んでもらう
-                eps_to_use = selected_episodes if selected_episodes else episodes
+                # RAG: メモから関連する文字起こしを検索
+                relevant_transcriptions = search_relevant_transcriptions(
+                    memo, 
+                    st.session_state.get('transcriptions', []),
+                    max_results=2
+                )
                 
-                response = model.generate_content(get_script_prompt(memo, settings, eps_to_use))
+                # 参照された文字起こしを表示
+                if relevant_transcriptions:
+                    st.session_state.used_transcriptions = [t.get('title', '無題') for t in relevant_transcriptions]
+                
+                # RAG版プロンプトで生成
+                response = model.generate_content(
+                    get_script_prompt_with_transcriptions(memo, settings, relevant_transcriptions)
+                )
                 script = response.text
             
             st.session_state.generated_script = script
-            st.success("✅ 台本を生成しました！")
+            
+            # 参照した文字起こしを表示
+            if relevant_transcriptions:
+                st.success(f"✅ 台本を生成しました！（参照: {', '.join(st.session_state.used_transcriptions)}）")
+            else:
+                st.success("✅ 台本を生成しました！")
             
         except Exception as e:
             err_msg = str(e)
@@ -1041,11 +1204,96 @@ def render_script_history():
                     st.rerun()
 
 
+def render_transcriptions():
+    """文字起こしインポート画面"""
+    st.markdown("### 📄 文字起こしデータ")
+    st.markdown("過去の放送の文字起こしを登録すると、あなたの口調を模倣した台本が生成されます。")
+    
+    st.markdown("---")
+    
+    # 新規登録フォーム
+    with st.expander("➕ 新しい文字起こしを登録", expanded=True):
+        new_title = st.text_input("📝 放送タイトル", placeholder="例: #123 副業で月5万円稼いだ話", key="new_trans_title")
+        new_date = st.date_input("📅 放送日", key="new_trans_date")
+        new_content = st.text_area(
+            "📄 文字起こし本文",
+            placeholder="音声配信の文字起こし全文を貼り付けてください...",
+            height=200,
+            key="new_trans_content"
+        )
+        new_tags = st.text_input("🏷️ タグ（カンマ区切り、任意）", placeholder="例: 副業, 収入, 体験談", key="new_trans_tags")
+        
+        if st.button("✅ 登録する", type="primary", use_container_width=True):
+            if new_title and new_content:
+                # タグをリストに変換
+                tags = [t.strip() for t in new_tags.split(",") if t.strip()] if new_tags else []
+                
+                new_item = {
+                    'id': str(uuid.uuid4()),
+                    'title': new_title,
+                    'date': new_date.strftime('%Y/%m/%d'),
+                    'content': new_content,
+                    'tags': tags
+                }
+                
+                # 先頭に追加
+                st.session_state.transcriptions.insert(0, new_item)
+                save_transcriptions_to_storage()
+                st.success("✅ 文字起こしを登録しました！")
+                st.rerun()
+            else:
+                st.warning("タイトルと本文を入力してください")
+    
+    st.markdown("---")
+    
+    # 登録済みデータ一覧
+    st.markdown("### 📚 登録済みデータ")
+    
+    if not st.session_state.transcriptions:
+        st.info("まだ文字起こしデータがありません。上のフォームから登録してください。")
+        return
+    
+    st.markdown(f"*{len(st.session_state.transcriptions)}件登録済み*")
+    
+    # 全削除ボタン
+    if st.button("🗑️ すべて削除", type="secondary"):
+        st.session_state.transcriptions = []
+        clear_transcriptions_storage()
+        st.rerun()
+    
+    st.markdown("---")
+    
+    # 各データを表示
+    for i, trans in enumerate(st.session_state.transcriptions):
+        tags_str = ", ".join(trans.get('tags', [])) if trans.get('tags') else "なし"
+        with st.expander(f"📄 {trans['title']} ─ {trans.get('date', '')}", expanded=False):
+            st.markdown(f"**タグ:** {tags_str}")
+            st.markdown("---")
+            
+            # 本文（長い場合は折りたたみ）
+            content = trans.get('content', '')
+            if len(content) > 500:
+                st.markdown(content[:500] + "...")
+                if st.checkbox("全文を表示", key=f"show_full_{i}"):
+                    st.markdown(content)
+            else:
+                st.markdown(content)
+            
+            st.markdown("---")
+            
+            # 削除ボタン
+            if st.button("🗑️ この文字起こしを削除", key=f"delete_trans_{i}", type="secondary", use_container_width=True):
+                st.session_state.transcriptions.pop(i)
+                save_transcriptions_to_storage()
+                st.rerun()
+
+
 def main():
     # LocalStorageから履歴と設定を読み込む
     load_history_from_storage()
     load_settings_from_storage()
     load_saved_scripts()
+    load_transcriptions()
     
     # サイドバーの履歴を表示
     render_sidebar()
@@ -1054,13 +1302,18 @@ def main():
     st.title("🎙️ 音声配信AIアシスタント")
     
     # メインナビゲーション（タブ）
-    tab_home, tab_script, tab_history, tab_settings = st.tabs(["🏠 ホーム", "📝 台本作成", "📚 履歴", "⚙️ 設定"])
+    tab_home, tab_script, tab_transcripts, tab_history, tab_settings = st.tabs([
+        "🏠 ホーム", "📝 台本作成", "📄 文字起こし", "📚 履歴", "⚙️ 設定"
+    ])
     
     with tab_home:
         render_home()
     
     with tab_script:
         render_script()
+    
+    with tab_transcripts:
+        render_transcriptions()
     
     with tab_history:
         render_script_history()
