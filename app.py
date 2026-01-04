@@ -2,6 +2,7 @@ import streamlit as st
 import os
 import tempfile
 import json
+import uuid
 from datetime import datetime
 from dotenv import load_dotenv
 import google.generativeai as genai
@@ -68,6 +69,51 @@ def clear_storage():
     )
 
 
+# --- Script History Storage Functions ---
+
+SCRIPT_STORAGE_KEY = "audio_ai_assistant_saved_scripts"
+
+def load_saved_scripts():
+    """LocalStorageから保存済み台本を読み込む（初回のみ）"""
+    if st.session_state.get('scripts_loaded', False):
+        return
+    
+    stored_data = streamlit_js_eval(
+        js_expressions=f"localStorage.getItem('{SCRIPT_STORAGE_KEY}')",
+        key="load_scripts_initial"
+    )
+    
+    if stored_data is not None and stored_data != "null" and stored_data != "":
+        try:
+            loaded_scripts = json.loads(stored_data)
+            if isinstance(loaded_scripts, list):
+                st.session_state.saved_scripts = loaded_scripts
+                st.session_state.scripts_loaded = True
+        except (json.JSONDecodeError, TypeError):
+            st.session_state.scripts_loaded = True
+    elif stored_data == "null" or stored_data == "":
+        st.session_state.scripts_loaded = True
+
+
+def save_scripts_to_storage():
+    """LocalStorageに台本を保存する"""
+    if 'saved_scripts' in st.session_state and st.session_state.saved_scripts:
+        scripts_json = json.dumps(st.session_state.saved_scripts, ensure_ascii=False)
+        escaped_json = scripts_json.replace('\\', '\\\\').replace("'", "\\'")
+        streamlit_js_eval(
+            js_expressions=f"localStorage.setItem('{SCRIPT_STORAGE_KEY}', '{escaped_json}')",
+            key=f"save_scripts_{len(st.session_state.saved_scripts)}_{datetime.now().strftime('%H%M%S')}"
+        )
+
+
+def clear_scripts_storage():
+    """台本履歴をクリア"""
+    streamlit_js_eval(
+        js_expressions=f"localStorage.removeItem('{SCRIPT_STORAGE_KEY}')",
+        key=f"clear_scripts_{datetime.now().strftime('%H%M%S')}"
+    )
+
+
 # --- Settings Storage Functions ---
 
 SETTINGS_STORAGE_KEY = "audio_ai_assistant_settings"
@@ -121,6 +167,8 @@ def save_settings_to_storage():
 if 'history' not in st.session_state:
     st.session_state.history = []
 
+if 'saved_scripts' not in st.session_state:
+    st.session_state.saved_scripts = []
 
 if 'viewing_history_index' not in st.session_state:
     st.session_state.viewing_history_index = None
@@ -909,20 +957,95 @@ def render_script():
         else:
             st.success(f"文字数: {char_count}字 ✓")
         
-        # コピーボタン
-        if st.button("📋 台本をコピー", type="primary", use_container_width=True):
-            escaped_text = edited_script.replace('\\', '\\\\').replace('`', '\\`').replace('$', '\\$')
-            streamlit_js_eval(
-                js_expressions=f"navigator.clipboard.writeText(`{escaped_text}`).then(() => true)",
-                key=f"copy_script_{datetime.now().strftime('%H%M%S%f')}"
-            )
-            st.success("✅ コピーしました！")
+        # コピーボタンと保存ボタン
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("📋 台本をコピー", type="primary", use_container_width=True):
+                escaped_text = edited_script.replace('\\', '\\\\').replace('`', '\\`').replace('$', '\\$')
+                streamlit_js_eval(
+                    js_expressions=f"navigator.clipboard.writeText(`{escaped_text}`).then(() => true)",
+                    key=f"copy_script_{datetime.now().strftime('%H%M%S%f')}"
+                )
+                st.success("✅ コピーしました！")
+        
+        with col2:
+            if st.button("💾 履歴に保存する", use_container_width=True):
+                # タイトルを生成（メモの冒頭20文字）
+                memo_text = st.session_state.get('script_memo', '')
+                title = memo_text[:20] + "..." if len(memo_text) > 20 else memo_text
+                if not title:
+                    title = "無題の台本"
+                
+                # 台本を保存
+                script_item = {
+                    'id': str(uuid.uuid4()),
+                    'title': title,
+                    'content': edited_script,
+                    'createdAt': datetime.now().strftime('%Y/%m/%d %H:%M')
+                }
+                
+                st.session_state.saved_scripts.insert(0, script_item)
+                
+                # 最大20件まで保持
+                if len(st.session_state.saved_scripts) > 20:
+                    st.session_state.saved_scripts = st.session_state.saved_scripts[:20]
+                
+                save_scripts_to_storage()
+                st.success("✅ 履歴に保存しました！")
+
+
+def render_script_history():
+    """台本履歴ページ"""
+    st.markdown("### 📚 保存した台本")
+    st.markdown("作成した台本の履歴を確認できます。")
+    
+    if not st.session_state.saved_scripts:
+        st.info("まだ保存された台本がありません。\n\n「📝 台本作成」タブで台本を作成し、「💾 履歴に保存する」ボタンで保存してください。")
+        return
+    
+    st.markdown(f"*保存済み: {len(st.session_state.saved_scripts)}件*")
+    
+    # 全削除ボタン
+    if st.button("🗑️ すべての履歴を削除", type="secondary"):
+        st.session_state.saved_scripts = []
+        clear_scripts_storage()
+        st.rerun()
+    
+    st.markdown("---")
+    
+    # 各台本を表示
+    for i, script in enumerate(st.session_state.saved_scripts):
+        with st.expander(f"📄 {script['title']} ─ {script['createdAt']}", expanded=False):
+            # 台本本文を表示
+            st.markdown(script['content'])
+            
+            st.markdown("---")
+            
+            # ボタン
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                if st.button("📋 コピー", key=f"copy_saved_{i}", use_container_width=True):
+                    escaped_text = script['content'].replace('\\', '\\\\').replace('`', '\\`').replace('$', '\\$')
+                    streamlit_js_eval(
+                        js_expressions=f"navigator.clipboard.writeText(`{escaped_text}`).then(() => true)",
+                        key=f"copy_saved_script_{i}_{datetime.now().strftime('%H%M%S%f')}"
+                    )
+                    st.success("✅ コピーしました！")
+            
+            with col2:
+                if st.button("🗑️ 削除", key=f"delete_saved_{i}", type="secondary", use_container_width=True):
+                    st.session_state.saved_scripts.pop(i)
+                    save_scripts_to_storage()
+                    st.rerun()
 
 
 def main():
     # LocalStorageから履歴と設定を読み込む
     load_history_from_storage()
     load_settings_from_storage()
+    load_saved_scripts()
     
     # サイドバーの履歴を表示
     render_sidebar()
@@ -931,13 +1054,16 @@ def main():
     st.title("🎙️ 音声配信AIアシスタント")
     
     # メインナビゲーション（タブ）
-    tab_home, tab_script, tab_settings = st.tabs(["🏠 ホーム", "📝 台本作成", "⚙️ 設定"])
+    tab_home, tab_script, tab_history, tab_settings = st.tabs(["🏠 ホーム", "📝 台本作成", "📚 履歴", "⚙️ 設定"])
     
     with tab_home:
         render_home()
     
     with tab_script:
         render_script()
+    
+    with tab_history:
+        render_script_history()
     
     with tab_settings:
         render_settings()
