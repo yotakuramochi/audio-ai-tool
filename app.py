@@ -68,6 +68,55 @@ def clear_storage():
     )
 
 
+# --- Settings Storage Functions ---
+
+SETTINGS_STORAGE_KEY = "audio_ai_assistant_settings"
+
+def get_default_settings():
+    """デフォルト設定を返す"""
+    return {
+        "broadcaster_name": "",
+        "target_audience": "",
+        "speaking_style": "親しみやすく",
+        "episodes": []
+    }
+
+
+def load_settings_from_storage():
+    """LocalStorageから設定を読み込む"""
+    if st.session_state.get('settings_loaded', False):
+        return
+    
+    stored_data = streamlit_js_eval(
+        js_expressions=f"localStorage.getItem('{SETTINGS_STORAGE_KEY}')",
+        key="load_settings_initial"
+    )
+    
+    if stored_data is not None and stored_data != "null" and stored_data != "":
+        try:
+            loaded_settings = json.loads(stored_data)
+            if isinstance(loaded_settings, dict):
+                st.session_state.user_settings = loaded_settings
+                st.session_state.settings_loaded = True
+        except (json.JSONDecodeError, TypeError):
+            st.session_state.user_settings = get_default_settings()
+            st.session_state.settings_loaded = True
+    elif stored_data == "null" or stored_data == "":
+        st.session_state.user_settings = get_default_settings()
+        st.session_state.settings_loaded = True
+
+
+def save_settings_to_storage():
+    """LocalStorageに設定を保存する"""
+    if 'user_settings' in st.session_state:
+        settings_json = json.dumps(st.session_state.user_settings, ensure_ascii=False)
+        escaped_json = settings_json.replace('\\', '\\\\').replace("'", "\\'")
+        streamlit_js_eval(
+            js_expressions=f"localStorage.setItem('{SETTINGS_STORAGE_KEY}', '{escaped_json}')",
+            key=f"save_settings_{datetime.now().strftime('%H%M%S%f')}"
+        )
+
+
 # セッション状態の初期化
 if 'history' not in st.session_state:
     st.session_state.history = []
@@ -360,6 +409,60 @@ https://omoroi-zukan.jp/
 """
 
 
+def get_script_prompt(memo, settings, selected_episodes):
+    """台本生成用プロンプト"""
+    style_guide = {
+        "親しみやすく": "フレンドリーで親近感のある話し方。「〜だよね」「〜かな」など。",
+        "丁寧に": "敬語を使い、落ち着いた丁寧な話し方。「〜です」「〜ますね」など。",
+        "熱血": "情熱的でエネルギッシュな話し方。「絶対に〜！」「〜しようぜ！」など。",
+        "毒舌": "ズバッと本音を言う話し方。皮肉やユーモアを交えて。"
+    }
+    
+    style = settings.get("speaking_style", "親しみやすく")
+    style_description = style_guide.get(style, style_guide["親しみやすく"])
+    
+    episodes_text = ""
+    if selected_episodes:
+        episodes_text = "\n\n【関連エピソード（台本に組み込むこと）】\n"
+        for ep in selected_episodes:
+            episodes_text += f"・{ep['title']}: {ep['detail']}\n"
+    
+    broadcaster = settings.get("broadcaster_name", "")
+    target = settings.get("target_audience", "")
+    
+    return f"""
+以下のメモを元に、音声配信（5〜7分、約1,500〜2,000文字）用の台本を作成してください。
+
+【配信者情報】
+- 名前: {broadcaster if broadcaster else "未設定"}
+- ターゲット: {target if target else "一般リスナー"}
+- 口調: {style}（{style_description}）
+
+【メモ】
+{memo}
+{episodes_text}
+
+【台本のルール】
+1. Markdownの見出し（##）を必ず使う（オープニング、メインパート、クロージングなど）
+2. 箇条書き形式で話すポイントを記載（完全な文章でなくてよい）
+3. 1,500〜2,000文字で作成する
+4. 関連エピソードがある場合は自然に組み込む
+5. 指定された口調で統一する
+
+【出力形式】
+## オープニング
+- 挨拶
+- 今日のテーマ紹介
+
+## メインパート
+（内容に応じてセクション分け）
+
+## クロージング
+- まとめ
+- 次回予告や告知
+"""
+
+
 def add_to_history(titles, description, transcript, filename):
     """履歴に追加する"""
     # タイトル案から最初のタイトルを抽出（表示用）
@@ -453,14 +556,12 @@ def render_sidebar():
 
 # --- Main App ---
 
-def main():
-    # LocalStorageから履歴を読み込む
-    load_history_from_storage()
-    
-    # サイドバーの履歴を表示
-    render_sidebar()
-    
-    st.title("🎙️ 音声配信AIアシスタント")
+DEFAULT_API_KEY = "AIzaSyASXSSBXpcmZHI6l33plPg5uXJo9iQD0VY"
+
+
+def render_home():
+    """ホーム画面（既存の概要欄作成機能）"""
+    st.markdown("### 🏠 概要欄作成")
     st.markdown("音声をアップロードするだけで、Stand.fm用の概要欄を自動生成します。")
     
     # 履歴表示中の通知
@@ -476,15 +577,13 @@ def main():
                 del st.session_state.transcript
             st.rerun()
     
-    # API Key設定（デフォルトキーを常に使用）
-    DEFAULT_API_KEY = "AIzaSyASXSSBXpcmZHI6l33plPg5uXJo9iQD0VY"
-    
     with st.expander("⚙️ API設定", expanded=False):
         api_key = st.text_input(
             "Google API Key",
             value=DEFAULT_API_KEY,
             type="password",
-            placeholder="APIキーを入力"
+            placeholder="APIキーを入力",
+            key="home_api_key"
         )
         if api_key:
             st.success("✓ APIキー設定済み")
@@ -581,9 +680,9 @@ def main():
         st.markdown("---")
         
         # タブで結果を表示
-        tab1, tab2, tab3 = st.tabs(["📋 概要欄", "🏷️ タイトル案", "📄 文字起こし"])
+        result_tab1, result_tab2, result_tab3 = st.tabs(["📋 概要欄", "🏷️ タイトル案", "📄 文字起こし"])
         
-        with tab1:
+        with result_tab1:
             st.markdown("### 📋 概要欄（編集してコピー）")
             edited_description = st.text_area(
                 "description_output",
@@ -618,14 +717,230 @@ def main():
             with col2:
                 st.link_button("🚀 スタエフの投稿画面を開く", "https://stand.fm/creator/broadcast/create", use_container_width=True)
         
-        with tab2:
+        with result_tab2:
             st.markdown("### 🏷️ タイトル案")
             st.markdown(st.session_state.titles)
         
-        with tab3:
+        with result_tab3:
             st.markdown("### 📄 文字起こし（参考用）")
             with st.expander("全文を表示", expanded=False):
                 st.markdown(st.session_state.transcript)
+
+
+def render_settings():
+    """設定画面"""
+    st.markdown("### ⚙️ ユーザー設定")
+    st.markdown("配信スタイルやエピソードを保存して、台本作成に活用できます。")
+    
+    # 設定を読み込み
+    if 'user_settings' not in st.session_state:
+        st.session_state.user_settings = get_default_settings()
+    
+    settings = st.session_state.user_settings
+    
+    st.markdown("---")
+    
+    # 基本情報
+    st.markdown("#### 👤 基本情報")
+    
+    broadcaster_name = st.text_input(
+        "配信者名",
+        value=settings.get("broadcaster_name", ""),
+        placeholder="例: よーちゃん",
+        key="settings_broadcaster"
+    )
+    
+    target_audience = st.text_input(
+        "ターゲット層",
+        value=settings.get("target_audience", ""),
+        placeholder="例: 20〜30代の副業に興味がある会社員",
+        key="settings_target"
+    )
+    
+    speaking_style = st.selectbox(
+        "話し方の口調",
+        options=["親しみやすく", "丁寧に", "熱血", "毒舌"],
+        index=["親しみやすく", "丁寧に", "熱血", "毒舌"].index(settings.get("speaking_style", "親しみやすく")),
+        key="settings_style"
+    )
+    
+    st.markdown("---")
+    
+    # エピソード管理
+    st.markdown("#### 📖 エピソード管理")
+    st.markdown("*台本作成時に、関連するエピソードが自動で選ばれます*")
+    
+    episodes = settings.get("episodes", [])
+    
+    # 新しいエピソード追加
+    with st.expander("➕ 新しいエピソードを追加", expanded=False):
+        new_title = st.text_input("エピソードのタイトル", placeholder="例: 副業で初めて1万円稼いだ話", key="new_ep_title")
+        new_detail = st.text_area("詳細", placeholder="どんな経験だったか、学びなどを記載", key="new_ep_detail", height=100)
+        
+        if st.button("✅ エピソードを追加", key="add_episode"):
+            if new_title and new_detail:
+                episodes.append({"title": new_title, "detail": new_detail})
+                st.session_state.user_settings["episodes"] = episodes
+                save_settings_to_storage()
+                st.success("エピソードを追加しました！")
+                st.rerun()
+            else:
+                st.warning("タイトルと詳細を入力してください")
+    
+    # 既存のエピソード表示
+    if episodes:
+        st.markdown(f"*登録済み: {len(episodes)}件*")
+        for i, ep in enumerate(episodes):
+            with st.container():
+                col1, col2 = st.columns([4, 1])
+                with col1:
+                    st.markdown(f"**{ep['title']}**")
+                    st.caption(ep['detail'][:100] + "..." if len(ep['detail']) > 100 else ep['detail'])
+                with col2:
+                    if st.button("🗑️", key=f"del_ep_{i}"):
+                        episodes.pop(i)
+                        st.session_state.user_settings["episodes"] = episodes
+                        save_settings_to_storage()
+                        st.rerun()
+                st.markdown("---")
+    else:
+        st.info("まだエピソードが登録されていません")
+    
+    # 保存ボタン
+    st.markdown("---")
+    if st.button("💾 設定を保存", type="primary", use_container_width=True):
+        st.session_state.user_settings = {
+            "broadcaster_name": broadcaster_name,
+            "target_audience": target_audience,
+            "speaking_style": speaking_style,
+            "episodes": episodes
+        }
+        save_settings_to_storage()
+        st.success("✅ 設定を保存しました！")
+
+
+def render_script():
+    """台本作成画面"""
+    st.markdown("### 📝 台本作成")
+    st.markdown("メモを入力すると、設定に基づいた台本を生成します。")
+    
+    # 設定をチェック
+    if 'user_settings' not in st.session_state:
+        st.session_state.user_settings = get_default_settings()
+    
+    settings = st.session_state.user_settings
+    
+    # 現在の設定を表示
+    with st.expander("📋 現在の設定", expanded=False):
+        st.markdown(f"- **配信者名**: {settings.get('broadcaster_name') or '未設定'}")
+        st.markdown(f"- **ターゲット**: {settings.get('target_audience') or '未設定'}")
+        st.markdown(f"- **口調**: {settings.get('speaking_style', '親しみやすく')}")
+        st.markdown(f"- **エピソード**: {len(settings.get('episodes', []))}件登録済み")
+        st.markdown("*設定を変更するには「⚙️ 設定」タブへ*")
+    
+    st.markdown("---")
+    
+    # メモ入力
+    memo = st.text_area(
+        "📝 話したいことのメモ",
+        placeholder="例:\n・今日あった面白い出来事\n・最近読んだ本の感想\n・リスナーからの質問への回答",
+        height=200,
+        key="script_memo"
+    )
+    
+    # エピソード選択（オプション）
+    episodes = settings.get("episodes", [])
+    selected_episodes = []
+    
+    if episodes:
+        st.markdown("#### 📖 使用するエピソード（任意）")
+        st.caption("選択しない場合、AIが自動で関連エピソードを選びます")
+        
+        for i, ep in enumerate(episodes):
+            if st.checkbox(ep['title'], key=f"use_ep_{i}"):
+                selected_episodes.append(ep)
+    
+    st.markdown("---")
+    
+    # 生成ボタン
+    if st.button("🚀 台本を生成する", disabled=not memo, type="primary", use_container_width=True):
+        try:
+            genai.configure(api_key=DEFAULT_API_KEY)
+            model = genai.GenerativeModel("gemini-2.0-flash-exp")
+            
+            with st.spinner("📝 台本を生成中..."):
+                # エピソードが選択されていない場合、AIに選んでもらう
+                eps_to_use = selected_episodes if selected_episodes else episodes
+                
+                response = model.generate_content(get_script_prompt(memo, settings, eps_to_use))
+                script = response.text
+            
+            st.session_state.generated_script = script
+            st.success("✅ 台本を生成しました！")
+            
+        except Exception as e:
+            err_msg = str(e)
+            if "429" in err_msg or "Quota" in err_msg:
+                st.error("⚠️ API利用制限に達しました")
+                st.info("💡 1〜2分待ってから再度お試しください")
+            else:
+                st.error(f"エラーが発生しました: {e}")
+    
+    # 生成結果表示
+    if 'generated_script' in st.session_state:
+        st.markdown("---")
+        st.markdown("### 📄 生成された台本")
+        
+        # 編集可能なテキストエリア
+        edited_script = st.text_area(
+            "script_output",
+            value=st.session_state.generated_script,
+            height=500,
+            label_visibility="collapsed",
+            key="editable_script"
+        )
+        
+        # 文字数カウント
+        char_count = len(edited_script)
+        if char_count < 1500:
+            st.warning(f"文字数: {char_count}字（目標: 1,500〜2,000字）")
+        elif char_count > 2000:
+            st.warning(f"文字数: {char_count}字（目標: 1,500〜2,000字）")
+        else:
+            st.success(f"文字数: {char_count}字 ✓")
+        
+        # コピーボタン
+        if st.button("📋 台本をコピー", type="primary", use_container_width=True):
+            escaped_text = edited_script.replace('\\', '\\\\').replace('`', '\\`').replace('$', '\\$')
+            streamlit_js_eval(
+                js_expressions=f"navigator.clipboard.writeText(`{escaped_text}`).then(() => true)",
+                key=f"copy_script_{datetime.now().strftime('%H%M%S%f')}"
+            )
+            st.success("✅ コピーしました！")
+
+
+def main():
+    # LocalStorageから履歴と設定を読み込む
+    load_history_from_storage()
+    load_settings_from_storage()
+    
+    # サイドバーの履歴を表示
+    render_sidebar()
+    
+    # ヘッダー
+    st.title("🎙️ 音声配信AIアシスタント")
+    
+    # メインナビゲーション（タブ）
+    tab_home, tab_script, tab_settings = st.tabs(["🏠 ホーム", "📝 台本作成", "⚙️ 設定"])
+    
+    with tab_home:
+        render_home()
+    
+    with tab_script:
+        render_script()
+    
+    with tab_settings:
+        render_settings()
 
 
 if __name__ == "__main__":
