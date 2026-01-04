@@ -853,7 +853,29 @@ def render_home():
             add_to_history(titles, description, transcript, uploaded_file.name)
             st.session_state.viewing_history_index = None
             
-            st.success("✅ 生成完了！サイドバーに履歴が追加されました。")
+            # 文字起こしデータにも自動登録（台本作成で参照できるように）
+            first_title = ""
+            for line in titles.split('\n'):
+                if line.strip().startswith('1.'):
+                    first_title = line.strip()[2:].strip()
+                    break
+            if not first_title:
+                first_title = uploaded_file.name[:30]
+            
+            trans_item = {
+                'id': str(uuid.uuid4()),
+                'title': first_title,
+                'date': datetime.now().strftime('%Y/%m/%d'),
+                'content': transcript,
+                'tags': []
+            }
+            st.session_state.transcriptions.insert(0, trans_item)
+            # 最大20件まで保持
+            if len(st.session_state.transcriptions) > 20:
+                st.session_state.transcriptions = st.session_state.transcriptions[:20]
+            save_transcriptions_to_storage()
+            
+            st.success("✅ 生成完了！文字起こしが自動登録され、台本作成に活用できます。")
             
             # ページを再描画してサイドバーを更新
             st.rerun()
