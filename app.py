@@ -76,128 +76,233 @@ if 'history' not in st.session_state:
 if 'viewing_history_index' not in st.session_state:
     st.session_state.viewing_history_index = None
 
-# Apply custom CSS for mobile-friendly design
+# Apply custom CSS for modern, clean design
 st.markdown("""
 <style>
+    /* Import Google Fonts */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    
     /* Global Styles */
     .stApp {
-        background-color: #0e1117;
-        color: #e0e0e0;
-        font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+        background: linear-gradient(180deg, #0a0a0f 0%, #12121a 100%);
+        color: #f0f0f5;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    
+    /* Hide Streamlit branding */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    
+    /* Main container */
+    .main .block-container {
+        padding-top: 2rem;
+        padding-bottom: 2rem;
+        max-width: 800px;
+    }
+    
+    /* Headers */
+    h1 {
+        font-size: 2rem !important;
+        font-weight: 700 !important;
+        color: #ffffff !important;
+        margin-bottom: 0.5rem !important;
+        letter-spacing: -0.02em;
+    }
+    
+    h2, h3 {
+        font-weight: 600 !important;
+        color: #e8e8ed !important;
+        letter-spacing: -0.01em;
+    }
+    
+    /* Subtitle text */
+    .stMarkdown p {
+        color: #9898a6;
+        line-height: 1.6;
     }
     
     /* Input Fields */
     .stTextArea textarea, .stTextInput input {
-        background-color: #1c1f26; 
-        color: #ffffff;
-        border-radius: 12px;
-        border: 1px solid #30363d;
-        padding: 15px;
-        font-size: 16px;
+        background-color: #18181f !important;
+        color: #ffffff !important;
+        border-radius: 10px !important;
+        border: 1px solid #2a2a35 !important;
+        padding: 14px !important;
+        font-size: 15px !important;
+        font-family: 'Inter', sans-serif !important;
+        transition: all 0.2s ease !important;
     }
+    
     .stTextArea textarea:focus, .stTextInput input:focus {
-        border-color: #4facfe;
-        box-shadow: 0 0 0 1px #4facfe;
+        border-color: #6366f1 !important;
+        box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15) !important;
     }
     
-    /* Buttons */
-    .stButton > button {
-        width: 100%;
-        background: linear-gradient(45deg, #4facfe 0%, #00f2fe 100%);
-        border: none;
-        color: white;
-        padding: 15px 32px;
-        text-align: center;
-        font-size: 18px;
-        margin: 4px 2px;
-        cursor: pointer;
+    /* File uploader */
+    .stFileUploader {
+        background-color: #18181f;
         border-radius: 12px;
-        font-weight: bold;
-        transition: transform 0.2s, box-shadow 0.2s;
-    }
-    .stButton > button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 15px rgba(79, 172, 254, 0.4);
-        color: white;
-    }
-    .stButton > button:active {
-        transform: translateY(0);
+        border: 2px dashed #2a2a35;
+        padding: 1.5rem;
     }
     
-    /* Headers */
-    h1, h2, h3 {
-        color: #ffffff;
-        font-weight: 700;
+    .stFileUploader:hover {
+        border-color: #6366f1;
     }
     
-    /* Card-like container */
-    .output-card {
-        background-color: #1c1f26;
-        border-radius: 12px;
-        padding: 20px;
-        border: 1px solid #30363d;
-        margin-top: 15px;
+    /* Primary Buttons */
+    .stButton > button[kind="primary"], 
+    .stButton > button:not([kind="secondary"]) {
+        background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%) !important;
+        border: none !important;
+        color: white !important;
+        padding: 12px 24px !important;
+        font-size: 15px !important;
+        font-weight: 600 !important;
+        border-radius: 10px !important;
+        transition: all 0.2s ease !important;
+        box-shadow: 0 4px 14px rgba(99, 102, 241, 0.25) !important;
     }
     
-    /* Success message */
-    .success-box {
-        background-color: #1a3d2e;
-        border: 1px solid #2ecc71;
-        border-radius: 8px;
-        padding: 10px 15px;
-        margin: 10px 0;
+    .stButton > button[kind="primary"]:hover,
+    .stButton > button:not([kind="secondary"]):hover {
+        transform: translateY(-1px) !important;
+        box-shadow: 0 6px 20px rgba(99, 102, 241, 0.35) !important;
     }
     
-    /* Tab styling */
+    /* Secondary Buttons */
+    .stButton > button[kind="secondary"] {
+        background: transparent !important;
+        border: 1px solid #3a3a45 !important;
+        color: #9898a6 !important;
+        padding: 10px 20px !important;
+        font-size: 14px !important;
+        font-weight: 500 !important;
+        border-radius: 8px !important;
+        transition: all 0.2s ease !important;
+    }
+    
+    .stButton > button[kind="secondary"]:hover {
+        background: #1f1f28 !important;
+        border-color: #6366f1 !important;
+        color: #e8e8ed !important;
+    }
+    
+    /* Link buttons */
+    .stLinkButton a {
+        background: transparent !important;
+        border: 1px solid #3a3a45 !important;
+        color: #9898a6 !important;
+        border-radius: 10px !important;
+        font-weight: 500 !important;
+        transition: all 0.2s ease !important;
+    }
+    
+    .stLinkButton a:hover {
+        background: #1f1f28 !important;
+        border-color: #6366f1 !important;
+        color: #ffffff !important;
+    }
+    
+    /* Tabs */
     .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
+        gap: 4px;
+        background-color: #18181f;
+        padding: 4px;
+        border-radius: 10px;
     }
+    
     .stTabs [data-baseweb="tab"] {
-        background-color: #1c1f26;
+        background-color: transparent;
         border-radius: 8px;
-        padding: 10px 20px;
-        border: 1px solid #30363d;
-    }
-    .stTabs [aria-selected="true"] {
-        background-color: #4facfe;
-    }
-    
-    /* Sidebar history items */
-    .history-item {
-        background-color: #1c1f26;
-        border-radius: 8px;
-        padding: 12px;
-        margin-bottom: 8px;
-        border: 1px solid #30363d;
-        cursor: pointer;
-        transition: all 0.2s;
-    }
-    .history-item:hover {
-        border-color: #4facfe;
-        transform: translateX(2px);
-    }
-    .history-date {
-        color: #888;
-        font-size: 12px;
-    }
-    .history-title {
-        color: #fff;
-        font-size: 14px;
+        padding: 10px 16px;
+        color: #9898a6;
         font-weight: 500;
-        margin-top: 4px;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
+        border: none;
     }
     
-    /* Storage indicator */
+    .stTabs [aria-selected="true"] {
+        background-color: #6366f1 !important;
+        color: white !important;
+    }
+    
+    /* Expander */
+    .streamlit-expanderHeader {
+        background-color: #18181f !important;
+        border-radius: 10px !important;
+        color: #e8e8ed !important;
+        font-weight: 500 !important;
+    }
+    
+    .streamlit-expanderContent {
+        background-color: #18181f !important;
+        border-radius: 0 0 10px 10px !important;
+    }
+    
+    /* Success/Info/Error messages */
+    .stSuccess, .stInfo, .stWarning, .stError {
+        border-radius: 10px !important;
+        font-weight: 500 !important;
+    }
+    
+    /* Sidebar */
+    section[data-testid="stSidebar"] {
+        background-color: #12121a !important;
+        border-right: 1px solid #1f1f28;
+    }
+    
+    section[data-testid="stSidebar"] .stMarkdown h2 {
+        font-size: 1.1rem !important;
+        color: #e8e8ed !important;
+        margin-bottom: 1rem !important;
+    }
+    
+    /* Sidebar buttons */
+    section[data-testid="stSidebar"] .stButton > button {
+        background: #1f1f28 !important;
+        border: 1px solid #2a2a35 !important;
+        color: #e8e8ed !important;
+        font-size: 13px !important;
+        padding: 10px 12px !important;
+        box-shadow: none !important;
+    }
+    
+    section[data-testid="stSidebar"] .stButton > button:hover {
+        background: #2a2a35 !important;
+        border-color: #6366f1 !important;
+    }
+    
+    /* Divider */
+    hr {
+        border-color: #2a2a35 !important;
+        margin: 1.5rem 0 !important;
+    }
+    
+    /* Audio player */
+    audio {
+        width: 100%;
+        border-radius: 10px;
+    }
+    
+    /* Spinner */
+    .stSpinner > div {
+        border-color: #6366f1 !important;
+    }
+    
+    /* Storage badge */
     .storage-badge {
-        background-color: #1a3d2e;
-        color: #2ecc71;
-        padding: 4px 8px;
-        border-radius: 4px;
+        background: linear-gradient(135deg, #059669 0%, #10b981 100%);
+        color: #ffffff;
+        padding: 4px 10px;
+        border-radius: 6px;
         font-size: 11px;
-        margin-left: 8px;
+        font-weight: 600;
+        display: inline-block;
+    }
+    
+    /* Caption text */
+    .stCaption {
+        color: #6b6b78 !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -222,22 +327,17 @@ def get_transcription_prompt():
 """
 
 
-def get_description_prompt(transcript):
-    """概要欄生成用プロンプト"""
+def get_combined_prompt(transcript):
+    """概要欄とタイトルを同時生成するプロンプト（API節約）"""
     return f"""
-以下の文字起こしを元に、Stand.fm用の概要欄を作成してください。
+以下の文字起こしを元に、「概要欄」と「タイトル案3つ」を同時に作成してください。
 
 【文字起こし】
 {transcript}
 
-【出力ルール】
-- まず固定テキスト（チャンネル情報）を出力する
-- その後に「【AI要約】」の見出しを入れる
-- 文字起こしの内容を、話し言葉を残しつつ読みやすく整形する
-- 要約ではなく「整形された文字起こし」に近い形にする
-- 重複や言い淀みのみ整理し、内容は削らない
+===== 出力形式（この形式を厳守）=====
 
-【出力形式】（この形式を厳守）
+---DESCRIPTION_START---
 ▼このチャンネルでは
 理学療法士、Webライター、副業、インタビュー企画など、実体験をもとに発信しています。
 "今、挑戦している人"の背中を押せるような内容を目指しています。
@@ -249,27 +349,14 @@ https://x.com/kurayota0714
 https://omoroi-zukan.jp/
 
 【AI要約】
-（ここに整形した文字起こしを出力）
-"""
+（ここに整形した文字起こしを出力。話し言葉を残しつつ読みやすく整形。要約ではなく全文を整形。）
+---DESCRIPTION_END---
 
-
-def get_title_prompt(transcript):
-    """タイトル生成用プロンプト"""
-    return f"""
-以下の文字起こしを元に、Stand.fm配信用のタイトルを3つ提案してください。
-
-【文字起こし】
-{transcript}
-
-【ルール】
-- 各タイトルは30文字以内
-- リスナーが興味を持つキャッチーな表現
-- 内容の核心を突いたもの
-
-【出力形式】
-1. タイトル案1
-2. タイトル案2
-3. タイトル案3
+---TITLES_START---
+1. タイトル案1（30文字以内、キャッチーに）
+2. タイトル案2（30文字以内、キャッチーに）
+3. タイトル案3（30文字以内、キャッチーに）
+---TITLES_END---
 """
 
 
@@ -308,8 +395,6 @@ def render_sidebar():
     """サイドバーに履歴を表示"""
     with st.sidebar:
         st.markdown("## 📚 生成履歴")
-        st.markdown('<span class="storage-badge">💾 永続保存</span>', unsafe_allow_html=True)
-        st.caption("ブラウザに保存されます")
         
         if not st.session_state.history:
             st.markdown("*まだ履歴がありません*")
@@ -391,18 +476,13 @@ def main():
                 del st.session_state.transcript
             st.rerun()
     
-    # API Key設定
+    # API Key設定（デフォルトキーを常に使用）
+    DEFAULT_API_KEY = "AIzaSyASXSSBXpcmZHI6l33plPg5uXJo9iQD0VY"
+    
     with st.expander("⚙️ API設定", expanded=False):
-        env_google_key = os.getenv("GOOGLE_API_KEY")
-        try:
-            if not env_google_key and "GOOGLE_API_KEY" in st.secrets:
-                env_google_key = st.secrets["GOOGLE_API_KEY"]
-        except Exception:
-            pass
-        
         api_key = st.text_input(
             "Google API Key",
-            value=env_google_key if env_google_key else "",
+            value=DEFAULT_API_KEY,
             type="password",
             placeholder="APIキーを入力"
         )
@@ -437,7 +517,7 @@ def main():
             
             # Gemini API設定
             genai.configure(api_key=api_key)
-            model = genai.GenerativeModel("gemini-2.0-flash-lite")
+            model = genai.GenerativeModel("gemini-2.0-flash-exp")
             
             # Step 1: 文字起こし
             with st.spinner("🎧 音声を文字起こし中..."):
@@ -450,15 +530,21 @@ def main():
             
             st.success("✓ 文字起こし完了")
             
-            # Step 2: 概要欄生成
-            with st.spinner("📝 概要欄を生成中..."):
-                description_response = model.generate_content(get_description_prompt(transcript))
-                description = description_response.text
-            
-            # Step 3: タイトル生成
-            with st.spinner("✨ タイトルを生成中..."):
-                title_response = model.generate_content(get_title_prompt(transcript))
-                titles = title_response.text
+            # Step 2: 概要欄 + タイトルを同時生成（API節約）
+            with st.spinner("📝 概要欄とタイトルを生成中..."):
+                combined_response = model.generate_content(get_combined_prompt(transcript))
+                combined_text = combined_response.text
+                
+                # 結果をパース
+                if "---DESCRIPTION_START---" in combined_text and "---DESCRIPTION_END---" in combined_text:
+                    description = combined_text.split("---DESCRIPTION_START---")[1].split("---DESCRIPTION_END---")[0].strip()
+                else:
+                    description = combined_text
+                
+                if "---TITLES_START---" in combined_text and "---TITLES_END---" in combined_text:
+                    titles = combined_text.split("---TITLES_START---")[1].split("---TITLES_END---")[0].strip()
+                else:
+                    titles = "1. タイトル生成エラー\n2. もう一度お試しください\n3. -"
             
             # 一時ファイル削除
             os.remove(tmp_path)
