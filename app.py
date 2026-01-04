@@ -950,9 +950,16 @@ def render_settings():
     st.markdown("### ⚙️ ユーザー設定")
     st.markdown("配信スタイルやエピソードを保存して、台本作成に活用できます。")
     
-    # 設定を読み込み
+    # 設定を読み込み（LocalStorageからの読み込みを待つ）
     if 'user_settings' not in st.session_state:
         st.session_state.user_settings = get_default_settings()
+    
+    # LocalStorageからの読み込みがまだ完了していない場合のメッセージ
+    if not st.session_state.get('settings_loaded', False):
+        st.info("⏳ 設定を読み込み中...")
+        # 再読み込みをトリガー
+        st.rerun()
+        return
     
     settings = st.session_state.user_settings
     
@@ -961,26 +968,43 @@ def render_settings():
     # 基本情報
     st.markdown("#### 👤 基本情報")
     
+    # session_stateに保存されている値を初期値として使用
+    if 'form_broadcaster' not in st.session_state:
+        st.session_state.form_broadcaster = settings.get("broadcaster_name", "")
+    if 'form_target' not in st.session_state:
+        st.session_state.form_target = settings.get("target_audience", "")
+    if 'form_style' not in st.session_state:
+        st.session_state.form_style = settings.get("speaking_style", "親しみやすく")
+    
     broadcaster_name = st.text_input(
         "配信者名",
-        value=settings.get("broadcaster_name", ""),
+        value=st.session_state.form_broadcaster,
         placeholder="例: よーちゃん",
         key="settings_broadcaster"
     )
+    # 入力値をフォーム状態に同期
+    st.session_state.form_broadcaster = broadcaster_name
     
     target_audience = st.text_input(
         "ターゲット層",
-        value=settings.get("target_audience", ""),
+        value=st.session_state.form_target,
         placeholder="例: 20〜30代の副業に興味がある会社員",
         key="settings_target"
     )
+    st.session_state.form_target = target_audience
+    
+    style_options = ["親しみやすく", "丁寧に", "熱血", "毒舌"]
+    current_style = st.session_state.form_style
+    if current_style not in style_options:
+        current_style = "親しみやすく"
     
     speaking_style = st.selectbox(
         "話し方の口調",
-        options=["親しみやすく", "丁寧に", "熱血", "毒舌"],
-        index=["親しみやすく", "丁寧に", "熱血", "毒舌"].index(settings.get("speaking_style", "親しみやすく")),
+        options=style_options,
+        index=style_options.index(current_style),
         key="settings_style"
     )
+    st.session_state.form_style = speaking_style
     
     st.markdown("---")
     
@@ -1027,14 +1051,21 @@ def render_settings():
     # 保存ボタン
     st.markdown("---")
     if st.button("💾 設定を保存", type="primary", use_container_width=True):
+        # フォームの値をsettingsに保存
         st.session_state.user_settings = {
             "broadcaster_name": broadcaster_name,
             "target_audience": target_audience,
             "speaking_style": speaking_style,
             "episodes": episodes
         }
+        # フォーム状態も更新
+        st.session_state.form_broadcaster = broadcaster_name
+        st.session_state.form_target = target_audience
+        st.session_state.form_style = speaking_style
+        
         save_settings_to_storage()
         st.success("✅ 設定を保存しました！")
+        st.balloons()  # 保存成功のフィードバック
 
 
 def render_script():
