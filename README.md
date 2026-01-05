@@ -1,37 +1,52 @@
-# 音声配信台本メーカー
+# 音声配信AIアシスタント
 
-断片的なメモから音声配信（ラジオ）用の台本構成を自動生成するツールです。
-
-## セットアップ
-
-1. 必要なライブラリをインストールします。
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-2. `.env`ファイルを作成し、APIキーを設定します（推奨）。
-   ※アプリ画面上でも入力可能です。
-   ```
-   OPENAI_API_KEY=your_openai_api_key
-   GOOGLE_API_KEY=your_google_api_key
-   ```
-
-## 起動方法
-
-以下のコマンドでアプリを起動します。
-
-```bash
-streamlit run app.py
-```
-
-ブラウザで `http://localhost:8501` にアクセスしてください。
+音声ファイルから概要欄・台本を自動生成するStreamlitアプリ
 
 ## 機能
 
-- **メモ入力**: 話したい内容を箇条書きなどで入力。
-- **構成パターン選択**: 以下の3つの型から選択可能。
-  - PREP法（論理的展開）
-  - エピソードトーク（ストーリーテリング）
-  - Q&A形式（質問回答）
-- **AI生成**: GPT-4o または Gemini を使用して構成案を作成。
-- **スマホ対応**: モバイルでも見やすいUIデザイン。
+- 🏠 **ホーム**: 音声アップロード → 概要欄 + タイトル案生成
+- 📝 **台本作成**: メモから台本生成（過去の文字起こしを参考に）
+- 📄 **文字起こし**: 過去の放送データをインポート
+- 📚 **履歴**: 保存した台本の管理
+- ⚙️ **設定**: 配信者情報・エピソード管理
+
+## 技術スタック
+
+- **フロントエンド**: Streamlit
+- **AI**: Google Gemini (gemini-2.0-flash-exp)
+- **ストレージ**: ブラウザ LocalStorage
+
+## ファイル構成
+
+```
+.
+├── app.py              # メインエントリーポイント
+├── config.py           # 設定・定数・CSS
+├── storage.py          # LocalStorage関連の関数
+├── prompts.py          # AIプロンプトテンプレート
+├── components/
+│   ├── __init__.py
+│   ├── sidebar.py      # サイドバー
+│   ├── home.py         # ホーム画面
+│   ├── script.py       # 台本作成
+│   ├── transcriptions.py  # 文字起こし管理
+│   └── settings.py     # 設定画面
+├── requirements.txt
+├── .env
+└── README.md
+```
+
+## セットアップ
+
+```bash
+pip install -r requirements.txt
+streamlit run app.py
+```
+
+## 環境変数
+
+`.env` ファイルに以下を設定:
+
+```
+GOOGLE_API_KEY=your_api_key_here
+```
