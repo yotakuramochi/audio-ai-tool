@@ -1,9 +1,9 @@
 """
 LocalStorage 操作関連の関数
+注意: streamlit_js_evalは固定キーを使用すること（動的キーは無限ループの原因）
 """
 import streamlit as st
 import json
-import uuid
 from datetime import datetime
 from streamlit_js_eval import streamlit_js_eval
 
@@ -21,26 +21,27 @@ from config import (
 # =============================================================================
 
 def load_history_from_storage():
-    """そのセッションで初めて呼ばれたときのみ読み込む"""
+    """LocalStorageから履歴を読み込む（初回のみ）"""
     if st.session_state.get('history_loaded', False):
         return
     
-    load_key = f"load_history_{uuid.uuid4().hex[:8]}"
+    # 固定キーを使用（動的キーは無限ループの原因）
     stored_data = streamlit_js_eval(
         js_expressions=f"localStorage.getItem('{STORAGE_KEY}')",
-        key=load_key
+        key="load_history_fixed"
     )
     
+    # データがある場合は読み込み
     if stored_data is not None and stored_data != "null" and stored_data != "":
         try:
             loaded_history = json.loads(stored_data)
             if isinstance(loaded_history, list):
                 st.session_state.history = loaded_history
-                st.session_state.history_loaded = True
         except (json.JSONDecodeError, TypeError):
-            st.session_state.history_loaded = True
-    elif stored_data == "null" or stored_data == "":
-        st.session_state.history_loaded = True
+            pass
+    
+    # 必ずフラグを立てる（Noneでも立てることで無限ループ防止）
+    st.session_state.history_loaded = True
 
 
 def save_history_to_storage():
@@ -67,14 +68,13 @@ def clear_storage():
 # =============================================================================
 
 def load_saved_scripts():
-    """そのセッションで初めて呼ばれたときのみ読み込む"""
+    """LocalStorageから台本を読み込む（初回のみ）"""
     if st.session_state.get('scripts_loaded', False):
         return
     
-    load_key = f"load_scripts_{uuid.uuid4().hex[:8]}"
     stored_data = streamlit_js_eval(
         js_expressions=f"localStorage.getItem('{SCRIPT_STORAGE_KEY}')",
-        key=load_key
+        key="load_scripts_fixed"
     )
     
     if stored_data is not None and stored_data != "null" and stored_data != "":
@@ -82,11 +82,10 @@ def load_saved_scripts():
             loaded_scripts = json.loads(stored_data)
             if isinstance(loaded_scripts, list):
                 st.session_state.saved_scripts = loaded_scripts
-                st.session_state.scripts_loaded = True
         except (json.JSONDecodeError, TypeError):
-            st.session_state.scripts_loaded = True
-    elif stored_data == "null" or stored_data == "":
-        st.session_state.scripts_loaded = True
+            pass
+    
+    st.session_state.scripts_loaded = True
 
 
 def save_scripts_to_storage():
@@ -113,14 +112,13 @@ def clear_scripts_storage():
 # =============================================================================
 
 def load_transcriptions():
-    """そのセッションで初めて呼ばれたときのみ読み込む"""
+    """LocalStorageから文字起こしを読み込む（初回のみ）"""
     if st.session_state.get('transcriptions_loaded', False):
         return
     
-    load_key = f"load_transcriptions_{uuid.uuid4().hex[:8]}"
     stored_data = streamlit_js_eval(
         js_expressions=f"localStorage.getItem('{TRANSCRIPTION_STORAGE_KEY}')",
-        key=load_key
+        key="load_transcriptions_fixed"
     )
     
     if stored_data is not None and stored_data != "null" and stored_data != "":
@@ -128,11 +126,10 @@ def load_transcriptions():
             loaded_transcriptions = json.loads(stored_data)
             if isinstance(loaded_transcriptions, list):
                 st.session_state.transcriptions = loaded_transcriptions
-                st.session_state.transcriptions_loaded = True
         except (json.JSONDecodeError, TypeError):
-            st.session_state.transcriptions_loaded = True
-    elif stored_data == "null" or stored_data == "":
-        st.session_state.transcriptions_loaded = True
+            pass
+    
+    st.session_state.transcriptions_loaded = True
 
 
 def save_transcriptions_to_storage():
@@ -159,14 +156,13 @@ def clear_transcriptions_storage():
 # =============================================================================
 
 def load_settings_from_storage():
-    """そのセッションで初めて呼ばれたときのみ読み込む"""
+    """LocalStorageから設定を読み込む（初回のみ）"""
     if st.session_state.get('settings_loaded', False):
         return
     
-    load_key = f"load_settings_{uuid.uuid4().hex[:8]}"
     stored_data = streamlit_js_eval(
         js_expressions=f"localStorage.getItem('{SETTINGS_STORAGE_KEY}')",
-        key=load_key
+        key="load_settings_fixed"
     )
     
     if stored_data is not None and stored_data != "null" and stored_data != "":
@@ -174,13 +170,12 @@ def load_settings_from_storage():
             loaded_settings = json.loads(stored_data)
             if isinstance(loaded_settings, dict):
                 st.session_state.user_settings = loaded_settings
-                st.session_state.settings_loaded = True
         except (json.JSONDecodeError, TypeError):
             st.session_state.user_settings = get_default_settings()
-            st.session_state.settings_loaded = True
-    elif stored_data == "null" or stored_data == "":
+    else:
         st.session_state.user_settings = get_default_settings()
-        st.session_state.settings_loaded = True
+    
+    st.session_state.settings_loaded = True
 
 
 def save_settings_to_storage():
