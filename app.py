@@ -708,9 +708,6 @@ def add_to_history(titles, description, transcript, filename):
 
 def render_sidebar():
     """サイドバーに履歴を表示（ページング対応で初期DOM軽量化）"""
-    # 遅延ロード: サイドバー表示時に履歴を読み込む
-    load_history_from_storage()
-    
     # 表示件数の管理
     if 'sidebar_show_count' not in st.session_state:
         st.session_state.sidebar_show_count = 5  # 初期表示は5件
@@ -1102,9 +1099,6 @@ def render_settings():
 
 def render_script():
     """台本作成画面"""
-    # 遅延ロード: 台本タブ表示時にデータを読み込む
-    load_transcriptions()
-    
     st.markdown("### 📝 台本作成")
     st.markdown("メモを入力すると、過去の文字起こしを参考に台本を生成します。")
     
@@ -1248,9 +1242,6 @@ def render_script():
 
 def render_script_history():
     """台本履歴ページ"""
-    # 遅延ロード: 履歴タブ表示時にデータを読み込む
-    load_saved_scripts()
-    
     st.markdown("### 📚 保存した台本")
     st.markdown("作成した台本の履歴を確認できます。")
     
@@ -1297,9 +1288,6 @@ def render_script_history():
 
 def render_transcriptions():
     """文字起こしインポート画面"""
-    # 遅延ロード: 文字起こしタブ表示時にデータを読み込む
-    load_transcriptions()
-    
     st.markdown("### 📄 文字起こしデータ")
     st.markdown("過去の放送の文字起こしを登録すると、あなたの口調を模倣した台本が生成されます。")
     
@@ -1385,11 +1373,12 @@ def render_transcriptions():
 def main():
     log_perf("main() start")
     
-    # 遅延読み込み: 起動時には最小限のデータのみ読み込む
-    # 履歴は render_sidebar() で遅延読み込み
-    # 設定はホームタブで必要なため先に読み込む
+    # LocalStorageから全データを読み込む（起動時に1回のみ）
+    load_history_from_storage()
     load_settings_from_storage()
-    log_perf("settings loaded")
+    load_saved_scripts()
+    load_transcriptions()
+    log_perf("all data loaded")
     
     # サイドバーの履歴を表示
     render_sidebar()
