@@ -3,10 +3,20 @@ import os
 import tempfile
 import json
 import uuid
+import re
+import time
 from datetime import datetime
 from dotenv import load_dotenv
 import google.generativeai as genai
 from streamlit_js_eval import streamlit_js_eval
+
+# --- Performance Measurement ---
+_PERF_START = time.time()
+
+def log_perf(label: str):
+    """パフォーマンスログを出力"""
+    elapsed = (time.time() - _PERF_START) * 1000
+    print(f"[PERF] {label}: {elapsed:.1f}ms")
 
 # Load environment variables
 load_dotenv()
@@ -225,7 +235,7 @@ if 'viewing_history_index' not in st.session_state:
 st.markdown("""
 <style>
     /* Import Google Fonts */
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');\n    \n    /* Font display swap for faster TTI */\n    * { font-display: swap; }
     
     /* Global Styles */
     .stApp {
@@ -565,7 +575,7 @@ def search_relevant_transcriptions(memo_text, transcriptions, max_results=2):
         return []
     
     # 簡易的なキーワード抽出（句読点・スペースで分割して長い単語を抽出）
-    import re
+    # Note: re is imported at the top of the file
     # 句読点、改行、スペースで分割
     words = re.split(r'[、。！？\s\n・「」『』（）\(\)]+', memo_text)
     # 2文字以上の単語をキーワードとして抽出
@@ -691,7 +701,14 @@ def add_to_history(titles, description, transcript, filename):
 
 
 def render_sidebar():
-    """サイドバーに履歴を表示"""
+    """サイドバーに履歴を表示（ページング対応で初期DOM軽量化）"""
+    # 遅延ロード: サイドバー表示時に履歴を読み込む
+    load_history_from_storage()
+    
+    # 表示件数の管理
+    if 'sidebar_show_count' not in st.session_state:
+        st.session_state.sidebar_show_count = 5  # 初期表示は5件
+    
     with st.sidebar:
         st.markdown("## 📚 生成履歴")
         
@@ -699,13 +716,16 @@ def render_sidebar():
             st.markdown("*まだ履歴がありません*")
             st.markdown("音声をアップロードして概要欄を生成すると、ここに履歴が表示されます。")
         else:
-            st.markdown(f"*過去{len(st.session_state.history)}件の履歴*")
+            total = len(st.session_state.history)
+            show_count = min(st.session_state.sidebar_show_count, total)
+            st.markdown(f"*表示中: {show_count}/{total}件*")
             
             # 全削除ボタン（上部に配置）
             st.markdown("---")
             if st.button("🗑️ すべての履歴を削除", type="secondary", use_container_width=True):
                 st.session_state.history = []
                 st.session_state.viewing_history_index = None
+                st.session_state.sidebar_show_count = 5
                 clear_storage()  # LocalStorageもクリア
                 if 'description' in st.session_state:
                     del st.session_state.description
@@ -717,8 +737,8 @@ def render_sidebar():
             
             st.markdown("---")
             
-            # 各履歴を表示
-            for i, item in enumerate(st.session_state.history):
+            # ページング: 最初のN件のみ表示（初期DOM軽量化）
+            for i, item in enumerate(st.session_state.history[:show_count]):
                 # 履歴カード
                 with st.container():
                     # 履歴を表示するボタン
@@ -748,6 +768,12 @@ def render_sidebar():
                         st.rerun()
                     
                     st.markdown("---")
+            
+            # 「もっと見る」ボタン
+            if show_count < total:
+                if st.button(f"📜 もっと見る（残り{total - show_count}件）", use_container_width=True):
+                    st.session_state.sidebar_show_count += 5
+                    st.rerun()
 
 
 # --- Main App ---
@@ -1070,6 +1096,9 @@ def render_settings():
 
 def render_script():
     """台本作成画面"""
+    # 遅延ロード: 台本タブ表示時にデータを読み込む
+    load_transcriptions()
+    
     st.markdown("### 📝 台本作成")
     st.markdown("メモを入力すると、過去の文字起こしを参考に台本を生成します。")
     
@@ -1213,6 +1242,9 @@ def render_script():
 
 def render_script_history():
     """台本履歴ページ"""
+    # 遅延ロード: 履歴タブ表示時にデータを読み込む
+    load_saved_scripts()
+    
     st.markdown("### 📚 保存した台本")
     st.markdown("作成した台本の履歴を確認できます。")
     
@@ -1259,6 +1291,9 @@ def render_script_history():
 
 def render_transcriptions():
     """文字起こしインポート画面"""
+    # 遅延ロード: 文字起こしタブ表示時にデータを読み込む
+    load_transcriptions()
+    
     st.markdown("### 📄 文字起こしデータ")
     st.markdown("過去の放送の文字起こしを登録すると、あなたの口調を模倣した台本が生成されます。")
     
@@ -1342,11 +1377,13 @@ def render_transcriptions():
 
 
 def main():
-    # LocalStorageから履歴と設定を読み込む
-    load_history_from_storage()
+    log_perf("main() start")
+    
+    # 遅延読み込み: 起動時には最小限のデータのみ読み込む
+    # 履歴は render_sidebar() で遅延読み込み
+    # 設定はホームタブで必要なため先に読み込む
     load_settings_from_storage()
-    load_saved_scripts()
-    load_transcriptions()
+    log_perf("settings loaded")
     
     # サイドバーの履歴を表示
     render_sidebar()
@@ -1373,6 +1410,8 @@ def main():
     
     with tab_settings:
         render_settings()
+    
+    log_perf("render complete")
 
 
 if __name__ == "__main__":
