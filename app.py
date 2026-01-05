@@ -34,15 +34,15 @@ st.set_page_config(
 STORAGE_KEY = "audio_ai_assistant_history"
 
 def load_history_from_storage():
-    """LocalStorageから履歴を読み込む（初回のみ）"""
-    # 既に読み込み済みの場合はスキップ
+    """そのセッションで初めて呼ばれたときのみledみ込む。既に読み込み済みならスキップ。"""
     if st.session_state.get('history_loaded', False):
         return
     
-    # JavaScriptでLocalStorageから読み込み
+    # ユニークなキーを生成（重複防止）
+    load_key = f"load_history_{uuid.uuid4().hex[:8]}"
     stored_data = streamlit_js_eval(
         js_expressions=f"localStorage.getItem('{STORAGE_KEY}')",
-        key="load_history_initial"
+        key=load_key
     )
     
     # stored_dataがNoneでない場合（JavaScriptが実行完了した場合）
@@ -84,13 +84,15 @@ def clear_storage():
 SCRIPT_STORAGE_KEY = "audio_ai_assistant_saved_scripts"
 
 def load_saved_scripts():
-    """LocalStorageから保存済み台本を読み込む（初回のみ）"""
+    """そのセッションで初めて呼ばれたときのみ読み込む。既に読み込み済みならスキップ。"""
     if st.session_state.get('scripts_loaded', False):
         return
     
+    # ユニークなキーを生成（重複防止）
+    load_key = f"load_scripts_{uuid.uuid4().hex[:8]}"
     stored_data = streamlit_js_eval(
         js_expressions=f"localStorage.getItem('{SCRIPT_STORAGE_KEY}')",
-        key="load_scripts_initial"
+        key=load_key
     )
     
     if stored_data is not None and stored_data != "null" and stored_data != "":
@@ -129,13 +131,15 @@ def clear_scripts_storage():
 TRANSCRIPTION_STORAGE_KEY = "voice_transcriptions"
 
 def load_transcriptions():
-    """LocalStorageから文字起こしデータを読み込む（初回のみ）"""
+    """そのセッションで初めて呼ばれたときのみ読み込む。既に読み込み済みならスキップ。"""
     if st.session_state.get('transcriptions_loaded', False):
         return
     
+    # ユニークなキーを生成（重複防止）
+    load_key = f"load_transcriptions_{uuid.uuid4().hex[:8]}"
     stored_data = streamlit_js_eval(
         js_expressions=f"localStorage.getItem('{TRANSCRIPTION_STORAGE_KEY}')",
-        key="load_transcriptions_initial"
+        key=load_key
     )
     
     if stored_data is not None and stored_data != "null" and stored_data != "":
@@ -184,13 +188,15 @@ def get_default_settings():
 
 
 def load_settings_from_storage():
-    """LocalStorageから設定を読み込む"""
+    """そのセッションで初めて呼ばれたときのみ読み込む。既に読み込み済みならスキップ。"""
     if st.session_state.get('settings_loaded', False):
         return
     
+    # ユニークなキーを生成（重複防止）
+    load_key = f"load_settings_{uuid.uuid4().hex[:8]}"
     stored_data = streamlit_js_eval(
         js_expressions=f"localStorage.getItem('{SETTINGS_STORAGE_KEY}')",
-        key="load_settings_initial"
+        key=load_key
     )
     
     if stored_data is not None and stored_data != "null" and stored_data != "":
