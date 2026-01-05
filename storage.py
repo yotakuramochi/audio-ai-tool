@@ -25,22 +25,29 @@ def load_history_from_storage():
     if st.session_state.get('history_loaded', False):
         return
     
-    # 固定キーを使用（動的キーは無限ループの原因）
+    # 固定キーを使用
     stored_data = streamlit_js_eval(
         js_expressions=f"localStorage.getItem('{STORAGE_KEY}')",
         key="load_history_fixed"
     )
     
-    # データがある場合は読み込み
-    if stored_data is not None and stored_data != "null" and stored_data != "":
-        try:
-            loaded_history = json.loads(stored_data)
-            if isinstance(loaded_history, list):
-                st.session_state.history = loaded_history
-        except (json.JSONDecodeError, TypeError):
-            pass
+    # None = JSがまだ実行されていない → 次のリロードを待つ
+    if stored_data is None:
+        return
     
-    # 必ずフラグを立てる（Noneでも立てることで無限ループ防止）
+    # "null" or "" = LocalStorageが空 → フラグを立てて終了
+    if stored_data == "null" or stored_data == "":
+        st.session_state.history_loaded = True
+        return
+    
+    # データがある場合は読み込み
+    try:
+        loaded_history = json.loads(stored_data)
+        if isinstance(loaded_history, list):
+            st.session_state.history = loaded_history
+    except (json.JSONDecodeError, TypeError):
+        pass
+    
     st.session_state.history_loaded = True
 
 
@@ -77,13 +84,19 @@ def load_saved_scripts():
         key="load_scripts_fixed"
     )
     
-    if stored_data is not None and stored_data != "null" and stored_data != "":
-        try:
-            loaded_scripts = json.loads(stored_data)
-            if isinstance(loaded_scripts, list):
-                st.session_state.saved_scripts = loaded_scripts
-        except (json.JSONDecodeError, TypeError):
-            pass
+    if stored_data is None:
+        return
+    
+    if stored_data == "null" or stored_data == "":
+        st.session_state.scripts_loaded = True
+        return
+    
+    try:
+        loaded_scripts = json.loads(stored_data)
+        if isinstance(loaded_scripts, list):
+            st.session_state.saved_scripts = loaded_scripts
+    except (json.JSONDecodeError, TypeError):
+        pass
     
     st.session_state.scripts_loaded = True
 
@@ -121,13 +134,19 @@ def load_transcriptions():
         key="load_transcriptions_fixed"
     )
     
-    if stored_data is not None and stored_data != "null" and stored_data != "":
-        try:
-            loaded_transcriptions = json.loads(stored_data)
-            if isinstance(loaded_transcriptions, list):
-                st.session_state.transcriptions = loaded_transcriptions
-        except (json.JSONDecodeError, TypeError):
-            pass
+    if stored_data is None:
+        return
+    
+    if stored_data == "null" or stored_data == "":
+        st.session_state.transcriptions_loaded = True
+        return
+    
+    try:
+        loaded_transcriptions = json.loads(stored_data)
+        if isinstance(loaded_transcriptions, list):
+            st.session_state.transcriptions = loaded_transcriptions
+    except (json.JSONDecodeError, TypeError):
+        pass
     
     st.session_state.transcriptions_loaded = True
 
@@ -165,14 +184,19 @@ def load_settings_from_storage():
         key="load_settings_fixed"
     )
     
-    if stored_data is not None and stored_data != "null" and stored_data != "":
-        try:
-            loaded_settings = json.loads(stored_data)
-            if isinstance(loaded_settings, dict):
-                st.session_state.user_settings = loaded_settings
-        except (json.JSONDecodeError, TypeError):
-            st.session_state.user_settings = get_default_settings()
-    else:
+    if stored_data is None:
+        return
+    
+    if stored_data == "null" or stored_data == "":
+        st.session_state.user_settings = get_default_settings()
+        st.session_state.settings_loaded = True
+        return
+    
+    try:
+        loaded_settings = json.loads(stored_data)
+        if isinstance(loaded_settings, dict):
+            st.session_state.user_settings = loaded_settings
+    except (json.JSONDecodeError, TypeError):
         st.session_state.user_settings = get_default_settings()
     
     st.session_state.settings_loaded = True
